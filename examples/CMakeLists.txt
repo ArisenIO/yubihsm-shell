@@ -25,7 +25,6 @@ endif ()
 set (
   SOURCE_IMPORT_RSA
   import_rsa.c
-  ../common/hash.c
   ../common/util.c
   )
 if(${LIBCRYPTO_VERSION} VERSION_LESS 1.1.0)
@@ -36,7 +35,6 @@ endif()
 set (
   SOURCE_GENERATE_EC
   generate_ec.c
-  ../common/hash.c
   ../common/util.c
   )
 if(${LIBCRYPTO_VERSION} VERSION_LESS 1.1.0)
@@ -91,7 +89,6 @@ set (
 set (
   SOURCE_IMPORT_EC
   import_ec.c
-  ../common/hash.c
   ../common/util.c
   )
 if(${LIBCRYPTO_VERSION} VERSION_LESS 1.1.0)
@@ -112,7 +109,6 @@ endif()
 set (
   SOURCE_LOGS
   logs.c
-  ../common/hash.c
   ../common/util.c
   )
 if(${LIBCRYPTO_VERSION} VERSION_LESS 1.1.0)
@@ -123,7 +119,6 @@ endif()
 set (
   SOURCE_SSH
   ssh.c
-  ../common/hash.c
   ../common/util.c
   )
 if(${LIBCRYPTO_VERSION} VERSION_LESS 1.1.0)
@@ -134,7 +129,6 @@ endif()
 set (
   SOURCE_DECRYPT_RSA
   decrypt_rsa.c
-  ../common/hash.c
   ../common/util.c
   )
 if(${LIBCRYPTO_VERSION} VERSION_LESS 1.1.0)
@@ -150,7 +144,6 @@ set (
 set (
   SOURCE_DECRYPT_EC
   decrypt_ec.c
-  ../common/hash.c
   ../common/util.c
   )
 if(${LIBCRYPTO_VERSION} VERSION_LESS 1.1.0)
@@ -161,7 +154,6 @@ endif()
 set (
   SOURCE_IMPORT_ED
   import_ed.c
-  ../common/hash.c
   ../common/util.c
   )
 if(${LIBCRYPTO_VERSION} VERSION_LESS 1.1.0)
