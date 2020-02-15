@@ -22,7 +22,6 @@
 #include "commands.h"
 #include "yubihsm-shell.h"
 #include "../common/insecure_memzero.h"
-#include "../common/parsing.h"
 
 #include "hash.h"
 #include "util.h"
@@ -49,8 +48,6 @@ static format_t fmt_to_fmt(cmd_format fmt) {
       return _binary;
     case fmt_hex:
       return _hex;
-    case fmt_PEM:
-      return _PEM;
     default:
       return 0;
   }
@@ -749,7 +746,6 @@ int yh_com_get_opaque(yubihsm_context *ctx, Argument *argv, cmd_format fmt) {
 
   uint8_t response[YH_MSG_BUF_SIZE];
   size_t response_len = sizeof(response);
-  int ret = -1;
 
   yh_rc yrc = yh_util_get_opaque(argv[0].e, argv[1].w, response, &response_len);
   if (yrc != YHR_SUCCESS) {
@@ -757,27 +753,11 @@ int yh_com_get_opaque(yubihsm_context *ctx, Argument *argv, cmd_format fmt) {
     return -1;
   }
 
-  if (fmt == fmt_PEM) {
-    X509 *x509;
-    const unsigned char *ptr = response;
-    x509 = d2i_X509(NULL, &ptr, response_len);
-    if (!x509) {
-      fprintf(stderr, "Failed parsing x509 information\n");
-    } else {
-      if (PEM_write_X509(ctx->out, x509) == 1) {
-        ret = 0;
-      } else {
-        fprintf(stderr, "Failed writing x509 information\n");
-      }
-    }
-    X509_free(x509);
-  } else {
-    if (write_file(response, response_len, ctx->out, fmt_to_fmt(fmt))) {
-      ret = 0;
-    }
+  if (write_file(response, response_len, ctx->out, fmt_to_fmt(fmt))) {
+    return 0;
   }
 
-  return ret;
+  return -1;
 }
 
 // NOTE(adma): Get a global option value
@@ -918,14 +898,11 @@ int yh_com_get_pubkey(yubihsm_context *ctx, Argument *argv, cmd_format fmt) {
     EC_KEY_free(eckey);
     EC_GROUP_free(group);
   } else {
-    // NOTE(adma): ED25519, there is (was) no support for this in
-    // OpenSSL, so we manually export them
+    // NOTE(adma): ED25519, there is no support for thi in OpenSSL, so
+    // we manually export them
     EVP_PKEY_free(public_key);
-    if (write_ed25519_key(response, response_len, ctx->out, fmt_to_fmt(fmt)) ==
-        false) {
-      fprintf(stderr, "Unable to format ed25519 key\n");
-      return -1;
-    }
+    write_ed25519_key(response, response_len, ctx->out,
+                      ctx->out_fmt == fmt_PEM); // FIXME: do something
     return 0;
   }
 
@@ -964,8 +941,6 @@ int yh_com_get_object_info(yubihsm_context *ctx, Argument *argv,
   const char *type;
   const char *algorithm = "";
   const char *extra_algo = "";
-  char *label = object.label;
-  size_t label_len = strlen(label);
   yh_type_to_string(object.type, &type);
   if (object.algorithm) {
     yh_algo_to_string(object.algorithm, &algorithm);
@@ -973,17 +948,11 @@ int yh_com_get_object_info(yubihsm_context *ctx, Argument *argv,
   }
   yh_domains_to_string(object.domains, domains, 255);
 
-  for (size_t i = 0; i < label_len; i++) {
-    if (isprint(label[i]) == 0) {
-      label[i] = '.';
-    }
-  }
-
   fprintf(ctx->out,
           "id: 0x%04x, type: %s%s%s, label: \"%s\", length: %d, "
           "domains: %s, sequence: %hhu, origin: ",
-          object.id, type, extra_algo, algorithm, label, object.len, domains,
-          object.sequence);
+          object.id, type, extra_algo, algorithm, object.label, object.len,
+          domains, object.sequence);
 
   if (object.origin & YH_ORIGIN_GENERATED) {
     fprintf(ctx->out, "generated");
@@ -1210,48 +1179,19 @@ int yh_com_list_objects(yubihsm_context *ctx, Argument *argv, cmd_format fmt) {
 }
 
 #ifdef USE_YKYH
-static int parse_yk_password(char *line, char **name, char *pw, size_t pw_len) {
+static int parse_yk_password(char *line, char **name, char **pw) {
 
   int len = strlen(line);
-  char *tmp_pw = NULL;
 
   *name = line;
   for (int i = 0; i < len; i++) {
     if (line[i] == ':') {
-      if (len - i - 1 != YKYH_PW_LEN &&
-          (len - i - 1 != 1 && line[i + 1] != '-')) {
+      if (len - i - 1 != YKYH_PW_LEN) {
         return -1;
       }
 
       line[i] = '\0';
-      tmp_pw = line + i + 1;
-
-      if (strcmp(tmp_pw, "-") == 0) {
-#ifndef __WIN32
-        // NOTE: we have to stop the timer around the call to
-        // EVP_read_pw_string(), openssl gets sad if a signal hits while waiting
-        // for input from the user. So we stop the timer and restore it when
-        // we're done
-        struct itimerval stoptimer, oldtimer;
-        memset(&stoptimer, 0, sizeof(stoptimer));
-        if (setitimer(ITIMER_REAL, &stoptimer, &oldtimer) != 0) {
-          fprintf(stderr, "Failed to setup timer\n");
-          return false;
-        }
-#endif
-        if (read_string("Credential password", pw, pw_len, HIDDEN_UNCHECKED) ==
-            false) {
-          return -1;
-        }
-#ifndef __WIN32
-        if (setitimer(ITIMER_REAL, &oldtimer, NULL) != 0) {
-          fprintf(stderr, "Failed to restore timer\n");
-          return false;
-        }
-#endif
-      } else {
-        strncpy(pw, tmp_pw, YKYH_PW_LEN);
-      }
+      *pw = line + i + 1;
 
       return 0;
     }
@@ -1310,14 +1250,12 @@ int yh_com_open_session(yubihsm_context *ctx, Argument *argv, cmd_format fmt) {
     }
 
     char *name;
-    char pw[YKYH_MAX_NAME_LEN + 2] = {0};
-    if (parse_yk_password((char *) (argv[1].x + 3), &name, pw, sizeof(pw)) ==
-        -1) {
+    char *pw;
+    if (parse_yk_password((char *) (argv[1].x + 3), &name, &pw) == -1) {
       fprintf(stderr,
               "Failed to decode password, format must be "
-              "yk:NAME[%d-%d]:PASSWORD[%d] or yk:NAME[%d-%d]:-\n",
-              YKYH_MIN_NAME_LEN, YKYH_MAX_NAME_LEN, YKYH_PW_LEN,
-              YKYH_MIN_NAME_LEN, YKYH_MAX_NAME_LEN);
+              "yk:NAME[%d-%d]:PASSWORD[%d]\n",
+              YKYH_MIN_NAME_LEN, YKYH_MAX_NAME_LEN, YKYH_PW_LEN);
       return -1;
     }
 

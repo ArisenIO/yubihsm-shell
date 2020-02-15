@@ -112,7 +112,7 @@ ykyh_rc ykyh_connect(ykyh_state *state, const char *wanted) {
   for (reader_ptr = reader_buf; *reader_ptr != '\0';
        reader_ptr += strlen(reader_ptr) + 1) {
     if (wanted) {
-      if (!strncasecmp(reader_ptr, wanted, strlen(wanted))) {
+      if (!strstr(reader_ptr, wanted)) {
         if (state->verbose) {
           fprintf(stderr, "skipping reader '%s' since it doesn't match '%s'\n",
                   reader_ptr, wanted);
@@ -252,9 +252,6 @@ static ykyh_rc send_data(ykyh_state *state, APDU *apdu, unsigned char *data,
   }
   if (*recv_len >= 2) {
     *sw = (data[*recv_len - 2] << 8) | data[*recv_len - 1];
-    *recv_len -= 2;
-  } else {
-    *sw = 0;
   }
 
   return YKYHR_SUCCESS;
@@ -540,33 +537,26 @@ ykyh_rc ykyh_list_keys(ykyh_state *state, ykyh_list_entry *list,
     return YKYHR_SUCCESS;
   }
 
-  size_t element = 0;
-  size_t i = 0;
+  if (*list_items < data[0]) {
+    return YKYHR_GENERIC_ERROR; // TODO(adma): not enough space, better error?
+  }
+  *list_items = data[0];
 
-  while (i < recv_len) {
+  size_t i = 1;
+  for (size_t j = 0; j < *list_items; j++) {
     if (data[i++] == YKYH_TAG_NAME_LIST) {
       size_t len = data[i++];
-      if (list != NULL) {
-        if (element >= *list_items) {
-          return YKYHR_MEMORY_ERROR;
-        }
-
-        list[element].algo = data[i++];
-        list[element].touch = data[i++];
-        memset(list[element].name, 0, sizeof(list[element].name));
-        memcpy(list[element].name, data + i, len - 3);
-        i += len - 3;
-        list[element].ctr = data[i++];
-      } else {
-        i += len;
-      }
-      element++;
+      list[j].algo = data[i++];
+      memset(list[j].name, 0, sizeof(list[j].name));
+      memcpy(list[j].name, data + i, len - 2);
+      i += len - 2;
+      list[j].ctr = data[i++];
+    } else {
+      return YKYHR_GENERIC_ERROR;
     }
   }
 
-  *list_items = element;
-
-  if (i != recv_len) {
+  if (i != recv_len - 2) {
     return YKYHR_GENERIC_ERROR;
   }
 

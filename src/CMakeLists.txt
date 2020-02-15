@@ -26,7 +26,6 @@ set (
   main.c
   ../common/util.c
   ../common/hash.c
-  ../common/parsing.c
   )
 
 if(${LIBCRYPTO_VERSION} VERSION_LESS 1.1.0)
@@ -36,7 +35,6 @@ endif()
 
 include_directories (
   ${LIBCRYPTO_INCLUDEDIR}
-  ${LIBEDIT_INCLUDEDIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../lib
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/../common
