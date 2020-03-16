@@ -21,7 +21,6 @@ add_gengetopt_files (cmdline)
 set (
   SOURCE
   ${GGO_C}
-  ../common/hash.c
   ../common/parsing.c
   ../common/util.c
   main.c
